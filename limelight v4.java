@@ -1,0 +1,219 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.hardware.limelightvision.LLResult;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.hardware.limelightvision.Limelight3A;
+import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.IMU;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose3D;
+import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
+
+@TeleOp
+public class Limelight extends OpMode {
+    
+    private Limelight3A limelight;
+    private IMU imu;
+    private double distance;
+    DcMotor fr, fl, br, bl, transfer, intake;
+    DcMotorEx outtakeR, outtakeL;
+    Servo gate;
+    double open = 0.5;
+    double closed = 0.3;
+    int target;
+    int defaultTarget;
+    double currentVel;
+    boolean autoAligning = false;
+
+    @Override
+    public void init(){
+        
+        
+        
+        limelight = hardwareMap.get(Limelight3A.class, "limelight");
+        fr = hardwareMap.get(DcMotor.class,"fr");
+        fl = hardwareMap.get(DcMotor.class,"fl");
+        br = hardwareMap.get(DcMotor.class,"br");
+        bl = hardwareMap.get(DcMotor.class,"bl");
+        
+        outtakeR = hardwareMap.get(DcMotorEx.class,"outtakeR");
+        outtakeL = hardwareMap.get(DcMotorEx.class,"outtakeL");
+        transfer = hardwareMap.get(DcMotor.class,"transfer");
+        intake = hardwareMap.get(DcMotor.class,"intake");
+        gate = hardwareMap.get(Servo.class,"gate");
+        
+        limelight.pipelineSwitch(0);
+        
+        imu = hardwareMap.get(IMU.class, "imu");
+        RevHubOrientationOnRobot revHubOrientationOnRobot = new RevHubOrientationOnRobot(
+        RevHubOrientationOnRobot.LogoFacingDirection.UP,
+        RevHubOrientationOnRobot.UsbFacingDirection.FORWARD);
+        imu.initialize(new IMU.Parameters(revHubOrientationOnRobot));
+        
+        fr.setDirection(DcMotor.Direction.REVERSE);
+        br.setDirection(DcMotor.Direction.REVERSE);
+        fl.setDirection(DcMotor.Direction.FORWARD);
+        bl.setDirection(DcMotor.Direction.FORWARD);
+        
+        outtakeR.setDirection(DcMotor.Direction.REVERSE);
+        outtakeL.setDirection(DcMotor.Direction.FORWARD);
+        
+        outtakeL.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+        fr.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        fl.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        br.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        bl.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        
+        transfer.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        outtakeR.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        outtakeL.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+    }
+
+    @Override
+    public void start() {
+        limelight.start();
+        
+    }
+
+    @Override
+    public void loop() {
+        
+        outtakeR.setVelocity(1500);
+        outtakeL.setVelocity(1500);
+    
+       // YawPitchRollAngles orientation = imu.getRobotYawPitchRollAngles();
+      //  limelight.updateRobotOrientation(orientation.getYaw(AngleUnit.DEGREES));
+        LLResult llResult = limelight.getLatestResult();
+        double tx = 0, ty = 0, ta = 0;
+        if (llResult != null && llResult.isValid()) {
+                target = calculateVelocity(llResult.getTy());
+               Pose3D botPose = llResult.getBotpose_MT2();
+                 tx = llResult.getTx();
+                 ty = llResult.getTy();
+        }
+        double drive = -gamepad1.left_stick_y;  
+        double strafe = gamepad1.left_stick_x; 
+        double turn = gamepad1.right_stick_x;  
+            
+            if(gamepad1.right_bumper || gamepad2.right_bumper){
+                intake.setPower(1);
+                transfer.setPower(1);
+                gate.setPosition(closed);
+            }
+            else if(gamepad1.left_bumper || gamepad2.left_bumper){
+                intake.setPower(-1);
+                transfer.setPower(-1);                                      
+            }else{
+                intake.setPower(0);
+                transfer.setPower(0);
+            }
+            
+        boolean shoot = false;
+        
+        telemetry.addData("velocity", outtakeL.getVelocity());
+        telemetry.addData("distance", distance);
+
+        if (gamepad1.a) {
+            int target = calculateVelocity(ty);
+            intake.setPower(1);
+            if(target < 1800)
+                transfer.setPower(1);
+            else 
+                transfer.setPower(0.6);
+            shoot = true;
+            boolean aligned = false;
+            
+            
+                turn = -calculatePID(tx);
+                telemetry.addData("Status", "AUTO-ALIGNING");
+                telemetry.addData("Tx", tx);
+                telemetry.addData("Ty", ty);
+                
+                if (Math.abs(tx) < 1) {
+                    telemetry.addData("align status", "ALIGNED = TRUE");
+                    aligned = true;
+                    turn = 0;
+                    }
+            currentVel = outtakeL.getVelocity();
+        
+            if(target < currentVel){
+                telemetry.addLine("bang");
+                outtakeR.setPower(0);
+                outtakeL.setPower(0);
+            }else{
+                telemetry.addLine("big bang");
+                outtakeR.setPower(1);
+                outtakeL.setPower(1);
+            } 
+            if(Math.abs(target - currentVel) < 20){
+                gate.setPosition(open);
+              telemetry.addData("gate", "open gate");
+            }
+
+           
+        }else{
+            outtakeR.setPower(0);
+                outtakeL.setPower(0);
+        }
+            double flPower = drive + strafe + turn;
+            double frPower = drive - strafe - turn;
+            double blPower = drive - strafe + turn;
+            double brPower = drive + strafe - turn;
+            
+            telemetry.addData("turn power", turn);
+            fl.setPower(flPower);
+            fr.setPower(frPower);
+            bl.setPower(blPower);
+            br.setPower(brPower);
+            
+            telemetry.addData("Target", target);
+            telemetry.addData("ERROR", (currentVel-target));
+            
+            telemetry.update();
+    }
+    
+    private double calculatePID(double tx) {
+        
+        double kp = 0.01;
+        double kf = 0.1;
+        double proportional = tx * kp;
+        double feedForward = kf;
+        
+        if(tx > 0){
+            feedForward = -kf;
+        }
+       
+        double output = proportional - feedForward;
+        return -output;
+    }
+    
+    private void setMotorPowers(double flPower, double frPower, double blPower, double brPower) {
+        fl.setPower(flPower);
+        fr.setPower(frPower);
+        bl.setPower(blPower);
+        br.setPower(brPower);
+    }
+    
+    public double getDistaceFromTag(double ta){
+        double scale = 26500;
+        double distance = Math.sqrt((scale / ta));
+        return distance;
+    }
+    public int calculateVelocity(double ty){
+        if(ty < 0.1)
+            return 1900;
+        if(ty < 2)
+            return 1650;
+        if(ty < 5.5)
+            return 1550;
+        return 1500;
+    }
+}
